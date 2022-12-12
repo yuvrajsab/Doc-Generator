@@ -35,6 +35,9 @@ from dotenv import load_dotenv
 
 from .models import *
 
+import re
+from bs4 import BeautifulSoup
+
 load_dotenv()
 
 logger = logging.getLogger()
@@ -468,3 +471,150 @@ def refresh_gc_token(refresh_token):
     response = requests.request("POST", url, headers=headers, data=payload)
     data = json.loads(response.text)
     return response.status_code, data
+
+
+def shift_for_loop_in_tbody_ejs(html_str):
+    soup = BeautifulSoup(html_str, 'html.parser')
+    tables = soup.find_all('table')
+    for table in tables:
+        pp = table.find_previous_sibling('p')  # previous para
+        if pp:
+            for_start_match_obj = re.search(r'<%[\s\t]*for(wh)?[\s\t]*\(.*\)[\s\t]*\{[\s\t]*%>', pp.string)
+            if bool(for_start_match_obj):
+                for_start = for_start_match_obj.group()
+                if for_start.find('forwh') == -1:
+                    for_start = for_start.replace('forwh', 'for', 1)
+                    table.insert(0, for_start)
+                else:
+                    table.insert(1, for_start)
+                # remove for loop headers
+                pp.string = ''
+
+                np = table.find_next_sibling('p')  # next para
+                if np:
+                    for_end_match_obj = re.search(
+                        r'<%[\s\t]*\}[\s\t]*%>', np.string)
+                    if bool(for_end_match_obj):
+                        table.append(for_end_match_obj.group())
+                        # remove for loop footer
+                        np.string = ''
+                    else:
+                        table.append('<% } %>')
+                else:
+                    table.append('<% } %>')
+    return soup.decode(formatter="html")
+
+
+def shift_for_loop_in_tbody_jinja(html_str):
+    soup = BeautifulSoup(html_str, 'html.parser')
+    tables = soup.find_all('table')
+    for table in tables:
+        pp = table.find_previous_sibling('p')  # previous para
+        if pp:
+            for_start_match_obj = re.search(
+                r'{%[\s\t]*for(wh)?[\s\t]+\w+[\s\t]*(,[\s\t]*\w+[\s\t]*)*[\s\t]+in[\s\t]+({{[\s\t]*\w+[\s\t]*}}|\w+)[\s\t]*%}', pp.string)
+            if bool(for_start_match_obj):
+                for_start = for_start_match_obj.group()
+                # replacing {{placeholder}} => placeholder
+                for_start = re.sub(
+                    r'{{[\s\t]*(\w+)[\s\t]*}}', r'\1', for_start)
+                if bool(re.search(r'{%[\s\t]*forwh', for_start)):
+                    for_start = for_start.replace('forwh', 'for', 1)
+                    table.insert(0, for_start)
+                else:
+                    table.insert(1, for_start)
+                # remove for loop headers
+                pp.string = ''
+
+                np = table.find_next_sibling('p')  # next para
+                if np:
+                    for_end_match_obj = re.search(
+                        r'{%[\s\t]*endfor[\s\t]*%}', np.string)
+                    if bool(for_end_match_obj):
+                        table.append(for_end_match_obj.group())
+                        # remove for loop footer
+                        np.string = ''
+                    else:
+                        raise Exception("No end of forloop found")
+                else:
+                    raise Exception("No end of forloop found")
+    return soup.decode(formatter=None)
+
+
+@csrf_exempt
+@api_view(['POST'])
+def for_loop_poc(request):
+    final_data = []
+    error_text = error_code = None
+    if request.method == "POST":
+        try:
+            access_token = None
+            transformers = None
+            type = request.data["type"]
+            body = None
+            if type == "GOOGLE_DOC":
+                if 'GA-OAUTH-TOKEN' in request.headers:
+                    access_token = request.headers.get('GA-OAUTH-TOKEN')
+                    if not 'GA-OAUTH-REFRESHTOKEN' in request.headers:
+                        raise Exception('Refresh token missing')
+                    
+                    doc_id = request.data['data']
+                    meta = "GOOGLE_DOC"
+                    try:
+                        resp = requests.get(f'https://www.googleapis.com/drive/v3/files/{doc_id}/export', params={
+                            'mimeType': 'text/html'
+                        }, headers={
+                            'Authorization': f"Bearer {access_token}"
+                        })
+
+                        if resp.status_code == 200:
+                            token = uuid.uuid4()
+                            data = {"data": None, "template_id": None}
+                            drive = PDFPlugin(data, token)
+                            html_str = str(resp.text)
+                            html_str = html_str.replace("\"", "'")
+                            html_str = html_str.replace("\n", " ")
+                            html_str = shift_for_loop_in_tbody_jinja(html_str)
+                            body = html_str
+                        elif resp.status_code == 401:
+                            status, data = refresh_gc_token(request.headers.get('GA-OAUTH-REFRESHTOKEN'))
+                            if status == 200:
+                                # TODO: save updated token in database
+                                access_token = data['access_token']
+                                # repeat request
+                                r = requests.post(request.build_absolute_uri(), headers={
+                                    'GA-OAUTH-TOKEN': access_token,
+                                    'GA-OAUTH-REFRESHTOKEN': request.headers.get('GA-OAUTH-REFRESHTOKEN'),
+                                }, data=request.data)
+                                return return_response(
+                                    r.json()['data'] if 'data' in r.json() else None, 
+                                    r.json()['error'][0]['code'] if 'error' in r.json() else None, 
+                                    r.json()['error'][0]['message'] if 'error' in r.json() else None)
+                        else:
+                            raise Exception(resp.content)
+                    except Exception as e:
+                        traceback.print_exc()
+                        error_code = 804
+                        error_text = f"Something went wrong!: {e}"
+            else:
+                raise Exception("invalid type")
+            if 'transformers' in request.data:
+                data['transformers'] = request.data['transformers']
+            req = requests.post(os.getenv('TEMPLATOR_URL'), data={"transformers": transformers,
+                                                                       "meta": meta,
+                                                                       "body": body,
+                                                                       "type": "JINJA",
+                                                                       "user": os.getenv('DOC_GENERATOR_ID')})
+            req.raise_for_status()
+            final_data = {
+                **req.json(),
+                **{
+                    'access_token': access_token
+                }
+            }
+        except Exception as e:
+            traceback.print_exc()
+            error_code = 804
+            error_text = f"Something went wrong!: {e}"
+        print(final_data, error_code, error_text)
+        return return_response(final_data, error_code, error_text)

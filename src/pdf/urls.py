@@ -34,4 +34,5 @@ urlpatterns = [
     path('bulk/generate/<uuid:token>/', views.generate_bulk, name='get_status'),
     url('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     url('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
+    url('for-loop-poc/', views.for_loop_poc),
 ]
