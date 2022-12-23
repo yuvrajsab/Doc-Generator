@@ -415,7 +415,7 @@ data = {
 @api_view(['GET'])
 def register_user_init(request):
     redirect_url=os.getenv('GC_REDIRECT_URL')
-    scope = f"https://www.googleapis.com/auth/{settings.GC_SCOPES}"
+    scope = settings.GC_SCOPES
     url = f"https://accounts.google.com/o/oauth2/auth?client_id={settings.GC_CLIENT_ID}&redirect_uri={redirect_url}&scope={scope}&access_type=offline&response_type=code"
     return HttpResponseRedirect(url)
 

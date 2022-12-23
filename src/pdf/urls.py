@@ -21,6 +21,7 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
+    url(r'^dmc/', include('data_mapping_console.urls')),
     path(r'ht/', include('health_check.urls')),
     path('grappelli/', include('grappelli.urls')),  # Admin grappelli URLS
     path('admin/', admin.site.urls),

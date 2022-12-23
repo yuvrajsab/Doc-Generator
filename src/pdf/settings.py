@@ -44,6 +44,7 @@ ALLOWED_HOSTS = ['*']
 INSTALLED_APPS = [
     # Applications
     'pdf',
+    'data_mapping_console.apps.DataMappingConsoleConfig',
 
     # Django Extensions
     'django_extensions',
