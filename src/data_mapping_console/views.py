@@ -8,6 +8,7 @@ import json
 import requests
 from django.core import serializers
 from django.forms.models import model_to_dict
+import os
 
 
 def return_response(final_data, error_code, error_text):
@@ -73,7 +74,7 @@ def getAllConfigurations(request):
     final_data = []
     error_text = error_code = None
     try:
-        checkAuthorization(request)
+        user = checkAuthorization(request)
         if request.method == 'GET':
             configurations = DMCConfigurations.objects.all()
             final_data = [c.serialize() for c in configurations]
@@ -92,7 +93,7 @@ def getAllConfigurations(request):
                 return return_response(None, result['error'][0]['code'], result['error'][0]['message'])
             else:
                 configuration = DMCConfigurations.objects.create(
-                    template_id=result['data']['id'], user_email='abc@gmail.com', config=config_json)
+                    template_id=result['data']['id'], user_email=user['email'], config=config_json)
                 configuration.save()
                 final_data = configuration.serialize()
     except Exception as e:
@@ -108,13 +109,16 @@ def configurationOp(request, id):
     final_data = []
     error_text = error_code = None
     try:
-        checkAuthorization(request)
+        user = checkAuthorization(request)
         configuration = DMCConfigurations.objects.filter(pk=id).first()
         if not configuration:
             error_text = 'Not found'
             error_code = 404
         elif request.method == 'GET':
             final_data = configuration.serialize()
+            req = requests.get(f"{os.getenv('TEMPLATOR_URL')}/{final_data['template_id']}")
+            req.raise_for_status()
+            final_data['template'] = req.json()['body']
         elif request.method == 'PUT':
             data = json.loads(request.body)
             if 'template_id' in data:
