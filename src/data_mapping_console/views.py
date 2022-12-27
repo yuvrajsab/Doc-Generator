@@ -9,6 +9,7 @@ import requests
 from django.core import serializers
 from django.forms.models import model_to_dict
 import os
+from pdf.views import register_template
 
 
 def return_response(final_data, error_code, error_text):
@@ -84,18 +85,18 @@ def getAllConfigurations(request):
             if not doc_id:
                 raise Exception('Invalid doc_id')
             config_json = data.get('config')
-            r = requests.post(request.scheme + '://' + request.get_host() + '/register/', headers=request.headers, json={
+            request._body = json.dumps({
                 'type': 'GOOGLE_DOC',
                 'data': doc_id,
             })
-            result = r.json()
-            if r.status_code != 200 or 'error' in result:
+            result = register_template(request)
+            result = json.loads(result.content)
+            if 'error' in result:
                 return return_response(None, result['error'][0]['code'], result['error'][0]['message'])
-            else:
-                configuration = DMCConfigurations.objects.create(
-                    template_id=result['data']['id'], user_email='abc@example.com', config=config_json)
-                configuration.save()
-                final_data = configuration.serialize()
+            configuration = DMCConfigurations.objects.create(
+                template_id=result['data']['id'], user_email='abc@example.com', config=config_json)
+            configuration.save()
+            final_data = configuration.serialize()
     except Exception as e:
         traceback.print_exc()
         error_code = 802

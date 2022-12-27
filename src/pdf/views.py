@@ -155,15 +155,16 @@ def register_template(request):
         try:
             access_token = None
             transformers = None
-            type = request.data["type"]
+            request_body = json.loads(request.body.decode('utf-8'))
+            print('data', request_body)
+            type = request_body["type"]
             body = None
             if type == "GOOGLE_DOC":
                 if 'GA-OAUTH-TOKEN' in request.headers:
                     access_token = request.headers.get('GA-OAUTH-TOKEN')
                     if not 'GA-OAUTH-REFRESHTOKEN' in request.headers:
                         raise Exception('Refresh token missing')
-                    
-                    doc_id = request.data['data']
+                    doc_id = request_body['data']
                     meta = "GOOGLE_DOC"
                     try:
                         resp = requests.get(f'https://www.googleapis.com/drive/v3/files/{doc_id}/export', params={
@@ -189,7 +190,7 @@ def register_template(request):
                                 r = requests.post(request.build_absolute_uri(), headers={
                                     'GA-OAUTH-TOKEN': access_token,
                                     'GA-OAUTH-REFRESHTOKEN': request.headers.get('GA-OAUTH-REFRESHTOKEN'),
-                                }, data=request.data)
+                                }, data=request_body)
                                 return return_response(
                                     r.json()['data'] if 'data' in r.json() else None, 
                                     r.json()['error'][0]['code'] if 'error' in r.json() else None, 
@@ -201,7 +202,7 @@ def register_template(request):
                         error_code = 804
                         error_text = f"Something went wrong!: {e}"
                 else:
-                    doc_id = request.data['data']
+                    doc_id = request_body['data']
                     meta = "GOOGLE_DOC"
                     try:
                         token = uuid.uuid4()
@@ -224,13 +225,13 @@ def register_template(request):
                         error_code = 804
                         error_text = f"Something went wrong!: {e}"
             elif type == "STRING":
-                body = request.data['data']
+                body = request_body['data']
                 meta = "STRING"
             elif type == "JSON":
-                body = json.dumps(request.data['data'])
+                body = json.dumps(request_body['data'])
                 meta = "JSON"
-            if 'transformers' in request.data:
-                data['transformers'] = request.data['transformers']
+            if 'transformers' in request_body:
+                data['transformers'] = request_body['transformers']
             req = requests.post(os.getenv('TEMPLATOR_URL'), data={"transformers": transformers,
                                                                        "meta": meta,
                                                                        "body": body,
