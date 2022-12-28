@@ -92,7 +92,7 @@ def getAllConfigurations(request):
             result = register_template(request)
             result = json.loads(result.content)
             if 'error' in result:
-                return return_response(None, result['error'][0]['code'], result['error'][0]['message'])
+                raise Exception('Failed to register template')
             configuration = DMCConfigurations.objects.create(
                 template_id=result['data']['id'], user_email='abc@example.com', config=config_json)
             configuration.save()

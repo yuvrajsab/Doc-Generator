@@ -155,7 +155,7 @@ def register_template(request):
         try:
             access_token = None
             transformers = None
-            request_body = json.loads(request.body.decode('utf-8'))
+            request_body = json.loads(request.body)
             print('data', request_body)
             type = request_body["type"]
             body = None
@@ -182,19 +182,22 @@ def register_template(request):
                             html_str = html_str.replace("\n", " ")
                             body = html_str
                         elif resp.status_code == 401:
+                            print(401, 'need refresh token')
                             status, data = refresh_gc_token(request.headers.get('GA-OAUTH-REFRESHTOKEN'))
                             if status == 200:
-                                # TODO: save updated token in database
-                                access_token = data['access_token']
+                                print('200', f"{request.scheme}://{request.get_host()}/register/")
                                 # repeat request
-                                r = requests.post(request.build_absolute_uri(), headers={
-                                    'GA-OAUTH-TOKEN': access_token,
+                                r = requests.post(f"{request.scheme}://{request.get_host()}/register/", headers={
+                                    'GA-OAUTH-TOKEN': data['access_token'],
                                     'GA-OAUTH-REFRESHTOKEN': request.headers.get('GA-OAUTH-REFRESHTOKEN'),
-                                }, data=request_body)
+                                }, json=request_body)
+                                print('req', r)
                                 return return_response(
                                     r.json()['data'] if 'data' in r.json() else None, 
                                     r.json()['error'][0]['code'] if 'error' in r.json() else None, 
                                     r.json()['error'][0]['message'] if 'error' in r.json() else None)
+                            else:
+                                raise Exception('Failed to register template')
                         else:
                             raise Exception(resp.content)
                     except Exception as e:
@@ -467,5 +470,6 @@ def refresh_gc_token(refresh_token):
     }
     payload=f'client_id={settings.GC_CLIENT_ID}&client_secret={settings.GC_CLIENT_SECRET}&refresh_token={refresh_token}&grant_type=refresh_token'
     response = requests.request("POST", url, headers=headers, data=payload)
-    data = json.loads(response.text)
+    data = response.json()
+    # print('refreshed', data)
     return response.status_code, data
