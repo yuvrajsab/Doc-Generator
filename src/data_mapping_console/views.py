@@ -88,6 +88,7 @@ def getAllConfigurations(request):
             request._body = json.dumps({
                 'type': 'GOOGLE_DOC',
                 'data': doc_id,
+                'template_engine': 'JINJA',
             })
             result = register_template(request)
             result = json.loads(result.content)
@@ -106,18 +107,19 @@ def getAllConfigurations(request):
 
 
 @csrf_exempt
-def configurationOp(request, id):
+def configurationOp(request, config_id):
     final_data = []
     error_text = error_code = None
     try:
         # user = checkAuthorization(request)
-        configuration = DMCConfigurations.objects.filter(pk=id).first()
+        configuration = DMCConfigurations.objects.filter(pk=config_id).first()
         if not configuration:
             error_text = 'Not found'
             error_code = 404
         elif request.method == 'GET':
             final_data = configuration.serialize()
-            req = requests.get(f"{os.getenv('TEMPLATOR_URL')}/{final_data['template_id']}")
+            req = requests.get(
+                f"{os.getenv('TEMPLATOR_URL')}/{final_data['template_id']}")
             req.raise_for_status()
             final_data['template'] = req.json()['body']
         elif request.method == 'PUT':
@@ -136,6 +138,40 @@ def configurationOp(request, id):
         elif request.method == 'DELETE':
             configuration.delete()
             final_data = configuration.serialize()
+    except Exception as e:
+        traceback.print_exc()
+        error_code = 802
+        error_text = f"Something went wrong!: {e}"
+    finally:
+        return return_response(final_data, error_code, error_text)
+
+
+@csrf_exempt
+def preview(request, config_id):
+    final_data = []
+    error_text = error_code = None
+    try:
+        # user = checkAuthorization(request)
+        data = json.loads(request.body)
+        if not 'data' in data:
+            raise Exception('data is required')
+        configuration = DMCConfigurations.objects.filter(
+            pk=config_id).first()
+        if not configuration:
+            error_text = 'Not found'
+            error_code = 404
+        elif request.method == 'POST':
+            data = {
+                "id": configuration.template_id,
+                "data": data['data']
+            }
+            req = requests.post(
+                f"{os.getenv('TEMPLATOR_URL')}/process", json=data)
+            if req.status_code == 201:
+                final_data = req.json()[
+                    'processed'] if "processed" in req.json() else None
+            else:
+                req.raise_for_status()
     except Exception as e:
         traceback.print_exc()
         error_code = 802

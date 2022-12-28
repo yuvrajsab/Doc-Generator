@@ -158,6 +158,10 @@ def register_template(request):
             request_body = json.loads(request.body)
             print('data', request_body)
             type = request_body["type"]
+            if 'template_engine' in request_body:
+                template_engine = request_body["template_engine"]
+            else:
+                template_engine = 'JS_TEMPLATE_LITERALS'
             body = None
             if type == "GOOGLE_DOC":
                 if 'GA-OAUTH-TOKEN' in request.headers:
@@ -238,7 +242,7 @@ def register_template(request):
             req = requests.post(os.getenv('TEMPLATOR_URL'), data={"transformers": transformers,
                                                                        "meta": meta,
                                                                        "body": body,
-                                                                       "type": "JS_TEMPLATE_LITERALS",
+                                                                       "type": template_engine,
                                                                        "user": os.getenv('DOC_GENERATOR_ID')})
             req.raise_for_status()
             final_data = {
