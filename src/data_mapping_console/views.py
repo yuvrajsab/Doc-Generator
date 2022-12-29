@@ -10,6 +10,9 @@ from django.core import serializers
 from django.forms.models import model_to_dict
 import os
 from pdf.views import register_template
+import xml
+from requests.auth import HTTPDigestAuth
+from pprint import pprint
 
 
 def return_response(final_data, error_code, error_text):
@@ -172,6 +175,113 @@ def preview(request, config_id):
                     'processed'] if "processed" in req.json() else None
             else:
                 req.raise_for_status()
+    except Exception as e:
+        traceback.print_exc()
+        error_code = 802
+        error_text = f"Something went wrong!: {e}"
+    finally:
+        return return_response(final_data, error_code, error_text)
+
+
+def getODKFormListing(host, user, pw):
+    url = f'http://{host}/xformsList'
+    auth = HTTPDigestAuth(user, pw)
+    result = requests.get(url, headers={
+        'Content-Type': 'text/xml; charset=utf-8'
+    }, auth=auth)
+
+    if result.status_code != 200:
+        raise Exception('failed to fetch form listing')
+
+    form_list = []
+    DOMTree = xml.dom.minidom.parseString(result.text)
+    forms = DOMTree.getElementsByTagName('xform')
+    for form in forms:
+        form_list.append({
+            'form_id': form.getElementsByTagName('formID')[0].firstChild.data,
+            'form_name': form.getElementsByTagName('name')[0].firstChild.data,
+            'download_url': form.getElementsByTagName('downloadUrl')[0].firstChild.data,
+        })
+    return form_list
+
+
+def getODKSingleForm(host, form_id, user, pw):
+    url = f'http://{host}/xformsList?formId={form_id}'
+    auth = HTTPDigestAuth(user, pw)
+    result = requests.get(url, headers={
+        'Content-Type': 'text/xml; charset=utf-8'
+    }, auth=auth)
+
+    if result.status_code != 200:
+        raise Exception('failed to fetch form of form id ' + form_id)
+
+    return result.text
+
+
+@csrf_exempt
+def getODKForms(request):
+    final_data = []
+    error_text = error_code = None
+
+    try:
+        host = os.environ.get('ODK_HOST')
+        username = os.environ.get('ODK_USERNAME')
+        password = os.environ.get('ODK_PASSWORD')
+        final_data = getODKFormListing(host, username, password)
+    except Exception as e:
+        traceback.print_exc()
+        error_code = 802
+        error_text = f"Something went wrong!: {e}"
+    finally:
+        return return_response(final_data, error_code, error_text)
+
+
+def getNthNodesName(node, container):
+    # skip jr:template
+    # only element nodes will come in recursive calls
+    if node.hasAttribute('jr:template'):
+        return
+
+    if node.childNodes:
+        # node with only text in it
+        if len(node.childNodes) == 1 and node.childNodes[0].nodeType == node.childNodes[0].TEXT_NODE:
+            container.append(node.nodeName)
+            return
+
+        for child in node.childNodes:
+            if child.nodeType == child.ELEMENT_NODE:
+                getNthNodesName(child, container)
+    else:
+        container.append(node.nodeName)
+
+
+@csrf_exempt
+def parseODKForm(request, form_id):
+    final_data = []
+    error_text = error_code = None
+
+    try:
+        # host = os.environ.get('ODK_HOST')
+        # username = os.environ.get('ODK_USERNAME')
+        # password = os.environ.get('ODK_PASSWORD')
+        # form = getODKSingleForm(host, form_id, username, password)
+        # DOMTree = xml.dom.minidom.parseString(form)
+
+        DOMTree = xml.dom.minidom.parse(
+            'data_mapping_console/Elementary_Mentoring_Form_2022_23_NOV.xml')
+        data = DOMTree.getElementsByTagName('data')[0]
+        container = []
+        if data.childNodes:
+            getNthNodesName(data, container)
+
+        # repeat nodes
+        for child in DOMTree.getElementsByTagName('repeat'):
+            nodeset_attr = child.getAttribute('nodeset').split('/')
+            if nodeset_attr:
+                container.append(nodeset_attr[-1])
+
+        # print(container)
+        final_data = container
     except Exception as e:
         traceback.print_exc()
         error_code = 802
