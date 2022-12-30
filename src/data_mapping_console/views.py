@@ -88,7 +88,7 @@ def getAllConfigurations(request):
             if not doc_id:
                 raise Exception('Invalid doc_id')
             config_json = data.get('config')
-            result = requests.post(f"{request.scheme}://{request.get_host()}/register/", headers=request.headers, json={
+            result = requests.post(f"{os.environ.get('DOC_GEN_URL')}/register/", headers=request.headers, json={
                 'type': 'GOOGLE_DOC',
                 'data': doc_id,
                 'template_engine': 'JINJA',
