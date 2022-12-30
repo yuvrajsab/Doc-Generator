@@ -9,7 +9,6 @@ import requests
 from django.core import serializers
 from django.forms.models import model_to_dict
 import os
-from pdf.views import register_template
 import xml
 from requests.auth import HTTPDigestAuth
 from pprint import pprint
@@ -89,12 +88,12 @@ def getAllConfigurations(request):
             if not doc_id:
                 raise Exception('Invalid doc_id')
             config_json = data.get('config')
-            request._body = json.dumps({
+            result = requests.post(f"{request.scheme}://{request.get_host()}/register/", headers=request.headers, json={
                 'type': 'GOOGLE_DOC',
                 'data': doc_id,
                 'template_engine': 'JINJA',
             })
-            result = register_template(request)
+
             result = json.loads(result.content)
             if 'error' in result:
                 raise Exception('Failed to register template')
