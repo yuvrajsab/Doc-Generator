@@ -74,6 +74,7 @@ def checkAuthorization(request):
 
 
 @csrf_exempt
+@api_view(['GET', 'POST'])
 def getAllConfigurations(request):
     final_data = []
     error_text = error_code = None
@@ -110,6 +111,7 @@ def getAllConfigurations(request):
 
 
 @csrf_exempt
+@api_view(['GET', 'PUT', 'DELETE'])
 def configurationOp(request, config_id):
     final_data = []
     error_text = error_code = None
@@ -150,6 +152,7 @@ def configurationOp(request, config_id):
 
 
 @csrf_exempt
+@api_view(['POST'])
 def preview(request, config_id):
     final_data = []
     error_text = error_code = None
@@ -206,7 +209,7 @@ def getODKFormListing(host, user, pw):
 
 
 def getODKSingleForm(host, form_id, user, pw):
-    url = f'http://{host}/xformsList?formId={form_id}'
+    url = f'http://{host}/xformsList?formID={form_id}'
     auth = HTTPDigestAuth(user, pw)
     result = requests.get(url, headers={
         'Content-Type': 'text/xml; charset=utf-8'
@@ -215,10 +218,24 @@ def getODKSingleForm(host, form_id, user, pw):
     if result.status_code != 200:
         raise Exception('failed to fetch form of form id ' + form_id)
 
-    return result.text
+    DOMTree = xml.dom.minidom.parseString(result.text)
+    download_url = DOMTree.getElementsByTagName('downloadUrl')
+    if not download_url:
+        raise Exception('form not found')
+
+    download_url = download_url[0].firstChild.data
+    resp = requests.get(download_url, headers={
+        'Content-Type': 'text/xml; charset=utf-8'
+    }, auth=auth)
+
+    if resp.status_code != 200:
+        raise Exception('failed to fetch form of form id ' + form_id)
+
+    return resp.text
 
 
 @csrf_exempt
+@api_view(['GET'])
 def getODKForms(request):
     final_data = []
     error_text = error_code = None
@@ -255,24 +272,37 @@ def getNthNodesName(node, container):
         container.append(node.nodeName)
 
 
+def getElementsById(node, id, container):
+    for child in node.childNodes:
+        if child.nodeType == child.ELEMENT_NODE:
+            getElementsById(child, id, container)
+
+    if node.nodeType == node.ELEMENT_NODE and node.hasAttribute('id') and node.getAttribute('id') == id:
+        container.append(node)
+
+
 @csrf_exempt
+@api_view(['GET'])
 def parseODKForm(request, form_id):
     final_data = []
     error_text = error_code = None
 
     try:
-        # host = os.environ.get('ODK_HOST')
-        # username = os.environ.get('ODK_USERNAME')
-        # password = os.environ.get('ODK_PASSWORD')
-        # form = getODKSingleForm(host, form_id, username, password)
-        # DOMTree = xml.dom.minidom.parseString(form)
+        host = os.environ.get('ODK_HOST')
+        username = os.environ.get('ODK_USERNAME')
+        password = os.environ.get('ODK_PASSWORD')
+        form = getODKSingleForm(host, form_id, username, password)
+        DOMTree = xml.dom.minidom.parseString(form)
 
-        DOMTree = xml.dom.minidom.parse(
-            'data_mapping_console/Elementary_Mentoring_Form_2022_23_NOV.xml')
-        data = DOMTree.getElementsByTagName('data')[0]
+        # get element with id = formid
+        data = []
+        getElementsById(DOMTree, form_id, data)
+        if not data:
+            raise Exception('odk form is not valid')
+
         container = []
-        if data.childNodes:
-            getNthNodesName(data, container)
+        if data[0].childNodes:
+            getNthNodesName(data[0], container)
 
         # repeat nodes
         for child in DOMTree.getElementsByTagName('repeat'):
