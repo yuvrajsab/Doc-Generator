@@ -189,9 +189,9 @@ def register_template(request):
                             print(401, 'need refresh token')
                             status, data = refresh_gc_token(request.headers.get('GA-OAUTH-REFRESHTOKEN'))
                             if status == 200:
-                                print('200', f"{request.scheme}://{request.get_host()}/register/")
+                                print('200', f"{os.environ.get('DOC_GEN_URL')}/register/")
                                 # repeat request
-                                r = requests.post(f"{request.scheme}://{request.get_host()}/register/", headers={
+                                r = requests.post(f"{os.environ.get('DOC_GEN_URL')}/register/", headers={
                                     'GA-OAUTH-TOKEN': data['access_token'],
                                     'GA-OAUTH-REFRESHTOKEN': request.headers.get('GA-OAUTH-REFRESHTOKEN'),
                                 }, json=request_body)
