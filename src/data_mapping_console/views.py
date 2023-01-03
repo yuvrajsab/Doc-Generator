@@ -12,6 +12,8 @@ import os
 import xml
 from requests.auth import HTTPDigestAuth
 from pprint import pprint
+from django.conf import settings
+from pdf.models import Tenant
 
 
 def return_response(final_data, error_code, error_text):
@@ -58,14 +60,7 @@ def return_response(final_data, error_code, error_text):
 def checkAuthorization(request):
     if 'Authorization' in request.headers:
         try:
-            url = 'https://www.googleapis.com/oauth2/v3/userinfo'
-            r = requests.get(url, headers={
-                'Authorization': request.headers['Authorization'],
-            })
-            if r.status_code != 200:
-                raise Exception('Invalid Authorization token provided')
-            else:
-                return r.json()
+            return jwt.decode(request.headers['Authorization'].split(' ')[-1], os.environ.get('PUBLIC_KEY'), algorithms='RS256')
         except Exception as e:
             raise Exception('Invalid Authorization token provided')
     else:
@@ -78,17 +73,35 @@ def getAllConfigurations(request):
     final_data = []
     error_text = error_code = None
     try:
-        # user = checkAuthorization(request)
+        token_data = checkAuthorization(request)
         if request.method == 'GET':
             configurations = DMCConfigurations.objects.all()
             final_data = [c.serialize() for c in configurations]
         elif request.method == 'POST':
+            existing_user = Tenant.objects.filter(
+                email=token_data['user']["email"]).first()
+            if not existing_user:
+                raise Exception('User not found in db')
+            else:
+                existing_user = json.loads(existing_user.google_token)
+
             data = json.loads(request.body)
             doc_id = data.get('doc_id')
+            title = data.get('title')
+            description = data.get('description')
+            version = data.get('version')
             if not doc_id:
                 raise Exception('Invalid doc_id')
+            if not title:
+                raise Exception('Title is required')
+            if not version:
+                raise Exception('Version is required')
+
             config_json = data.get('config')
-            result = requests.post(f"{os.environ.get('DOC_GEN_URL')}/register/", headers=request.headers, json={
+            result = requests.post(f"{os.environ.get('DOC_GEN_URL')}/register/", headers={
+                'GA-OAUTH-TOKEN': existing_user['access_token'],
+                'GA-OAUTH-REFRESHTOKEN': existing_user['refresh_token'],
+            }, json={
                 'type': 'GOOGLE_DOC',
                 'data': doc_id,
                 'template_engine': 'JINJA',
@@ -98,7 +111,7 @@ def getAllConfigurations(request):
             if 'error' in result:
                 raise Exception('Failed to register template')
             configuration = DMCConfigurations.objects.create(
-                template_id=result['data']['id'], user_email='abc@example.com', config=config_json)
+                template_id=result['data']['id'], user_email=token_data['user']['email'], config=config_json, title=title, description=description, version=version)
             configuration.save()
             final_data = configuration.serialize()
     except Exception as e:
@@ -115,7 +128,7 @@ def configurationOp(request, config_id):
     final_data = []
     error_text = error_code = None
     try:
-        # user = checkAuthorization(request)
+        token_data = checkAuthorization(request)
         configuration = DMCConfigurations.objects.filter(pk=config_id).first()
         if not configuration:
             error_text = 'Not found'
@@ -156,7 +169,7 @@ def preview(request, config_id):
     final_data = []
     error_text = error_code = None
     try:
-        # user = checkAuthorization(request)
+        token_data = checkAuthorization(request)
         data = json.loads(request.body)
         if not 'data' in data:
             raise Exception('data is required')
@@ -240,6 +253,7 @@ def getODKForms(request):
     error_text = error_code = None
 
     try:
+        token_data = checkAuthorization(request)
         host = os.environ.get('ODK_HOST')
         username = os.environ.get('ODK_USERNAME')
         password = os.environ.get('ODK_PASSWORD')
@@ -287,6 +301,7 @@ def parseODKForm(request, form_id):
     error_text = error_code = None
 
     try:
+        token_data = checkAuthorization(request)
         host = os.environ.get('ODK_HOST')
         username = os.environ.get('ODK_USERNAME')
         password = os.environ.get('ODK_PASSWORD')
@@ -317,3 +332,65 @@ def parseODKForm(request, form_id):
         error_text = f"Something went wrong!: {e}"
     finally:
         return return_response(final_data, error_code, error_text)
+
+
+@csrf_exempt
+@api_view(['POST'])
+def login(request):
+    final_data = []
+    error_text = error_code = None
+    body = json.loads(request.body)
+
+    try:
+        if not 'code' in body:
+            raise Exception('Authorization code is required')
+
+        url = "https://oauth2.googleapis.com/token"
+        payload = {
+            'code': body['code'],
+            'client_id': settings.GC_CLIENT_ID,
+            'client_secret': settings.GC_CLIENT_SECRET,
+            'redirect_uri': os.getenv('GC_REDIRECT_URL'),
+            'grant_type': 'authorization_code'
+        }
+        response = requests.post(url, data=payload)
+        data = response.json()
+
+        if 'error' in data:
+            error_code = 400
+            error_text = data['error']
+        else:
+            decoded = decode_gc_jwttoken(data)
+            print('decoded', decoded)
+            existing_user = Tenant.objects.filter(email=decoded["email"])
+            if existing_user.count() > 0:
+                existing_user.update(
+                    name=decoded["name"], email=decoded["email"], google_token=json.dumps(data))
+            else:
+                Tenant.objects.create(
+                    name=decoded["name"], email=decoded["email"], google_token=json.dumps(data))
+
+            jwt_data = {
+                'user': {
+                    'name': decoded['name'],
+                    'email': decoded['email'],
+                }
+            }
+
+            final_data = jwt.encode(jwt_data, os.environ.get(
+                'PRIVATE_KEY'), algorithm="RS256")
+    except Exception as e:
+        traceback.print_exc()
+        error_code = 802
+        error_text = f"Something went wrong!: {e}"
+    finally:
+        return return_response(final_data, error_code, error_text)
+
+
+def decode_gc_jwttoken(jwttoken):
+    url = "https://www.googleapis.com/oauth2/v3/certs"
+    client = jwt.PyJWKClient(url)
+    pub_key = client.get_signing_key_from_jwt(jwttoken["id_token"]).key
+    aud = jwt.decode(jwttoken["id_token"], options={
+                     "verify_signature": False})["aud"]
+    return jwt.decode(jwttoken["id_token"], pub_key, algorithms=["RS256"], audience=aud, options={"verify_exp": False})
