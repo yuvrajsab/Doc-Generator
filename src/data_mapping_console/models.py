@@ -10,6 +10,9 @@ class DMCConfigurations(BaseModel):
     ]
 
     id = models.AutoField(primary_key=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(null=True, default=None)
+    version = models.CharField(max_length=255)
     user_email = models.EmailField()
     template_id = models.BigIntegerField()
     config = models.JSONField(null=True)
