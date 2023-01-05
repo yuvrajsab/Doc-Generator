@@ -12,7 +12,6 @@ import os
 import xml
 from requests.auth import HTTPDigestAuth
 from pprint import pprint
-from django.conf import settings
 from pdf.models import Tenant
 
 
@@ -348,26 +347,28 @@ def login(request):
         url = "https://oauth2.googleapis.com/token"
         payload = {
             'code': body['code'],
-            'client_id': settings.GC_CLIENT_ID,
-            'client_secret': settings.GC_CLIENT_SECRET,
+            'client_id': os.getenv('GC_CLIENT_ID'),
+            'client_secret': os.getenv('GC_CLIENT_SECRET'),
             'redirect_uri': os.getenv('DMC_GC_REDIRECT_URL'),
             'grant_type': 'authorization_code'
         }
-        response = requests.post(url, data=payload)
+        response = requests.post(url, json=payload)
         data = response.json()
 
         if 'error' in data:
             error_code = 400
             error_text = data['error']
         else:
-            decoded = decode_gc_jwttoken(data)
-            print('decoded', decoded)
-            existing_user = Tenant.objects.filter(email=decoded["email"])
-            if existing_user.count() > 0:
-                existing_user.update(
-                    name=decoded["name"], email=decoded["email"], google_token=json.dumps(data))
+            decoded = decode_id_token(data['id_token'])
+            user = Tenant.objects.filter(email=decoded["email"]).first()
+            if user:
+                google_token = {**json.loads(user.google_token), **data}
+                user.name = decoded["name"]
+                user.email = decoded["email"]
+                user.google_token = json.dumps(google_token)
+                user.save()
             else:
-                Tenant.objects.create(
+                user = Tenant.objects.create(
                     name=decoded["name"], email=decoded["email"], google_token=json.dumps(data))
 
             jwt_data = {
@@ -387,10 +388,9 @@ def login(request):
         return return_response(final_data, error_code, error_text)
 
 
-def decode_gc_jwttoken(jwttoken):
+def decode_id_token(jwttoken):
     url = "https://www.googleapis.com/oauth2/v3/certs"
     client = jwt.PyJWKClient(url)
-    pub_key = client.get_signing_key_from_jwt(jwttoken["id_token"]).key
-    aud = jwt.decode(jwttoken["id_token"], options={
-                     "verify_signature": False})["aud"]
-    return jwt.decode(jwttoken["id_token"], pub_key, algorithms=["RS256"], audience=aud, options={"verify_exp": False})
+    pub_key = client.get_signing_key_from_jwt(jwttoken).key
+    aud = jwt.decode(jwttoken, options={"verify_signature": False})["aud"]
+    return jwt.decode(jwttoken, pub_key, algorithms=["RS256"], audience=aud, options={"verify_exp": False})
