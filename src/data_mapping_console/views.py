@@ -350,7 +350,7 @@ def login(request):
             'code': body['code'],
             'client_id': settings.GC_CLIENT_ID,
             'client_secret': settings.GC_CLIENT_SECRET,
-            'redirect_uri': os.getenv('GC_REDIRECT_URL'),
+            'redirect_uri': os.getenv('DMC_GC_REDIRECT_URL'),
             'grant_type': 'authorization_code'
         }
         response = requests.post(url, data=payload)
