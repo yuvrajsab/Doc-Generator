@@ -27,6 +27,9 @@ class DMCConfigurations(BaseModel):
     def serialize(self):
         __dict__ = {
             "id": self.id,
+            "title": self.title,
+            "description": self.description,
+            "version": self.version,
             "user_email": self.user_email,
             "template_id": self.template_id,
             "config": self.config,
