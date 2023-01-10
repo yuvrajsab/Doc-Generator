@@ -13,6 +13,14 @@ import xml
 from requests.auth import HTTPDigestAuth
 from pprint import pprint
 from pdf.models import Tenant
+from enum import Enum
+
+
+class QuestionType(Enum):
+    INPUT = 'input'
+    SELECT_SINGLE = 'select_single'
+    SELECT_MULTIPLE = 'select_multi'
+    UNKNOWN = 'unknown'
 
 
 def return_response(final_data, error_code, error_text):
@@ -149,6 +157,13 @@ def configurationOp(request, config_id):
                 configuration.status = data['status']
             if 'config' in data:
                 configuration.config = data['config']
+                if 'form_id' in data['config'] and 'mapping' in data['config']:
+                    key_list = list(data['config']['mapping'].keys())
+                    map_keys_to_type_and_choices(
+                        data['config']['form_id'], key_list)
+                    for k, v in data['config']['mapping'].items():
+                        data['config']['mapping'][k] = {
+                            **v, **list(filter(lambda x: x['name'] == k, key_list))[0]}
             configuration.save()
             final_data = configuration.serialize()
         elif request.method == 'DELETE':
@@ -293,6 +308,76 @@ def getElementsById(node, id, container):
         container.append(node)
 
 
+def getElementByRef(node, ref, container):
+    for child in node.childNodes:
+        if child.nodeType == child.ELEMENT_NODE:
+            getElementByRef(child, ref, container)
+
+    if node.nodeType == node.ELEMENT_NODE and node.hasAttribute('ref'):
+        part_ref = node.getAttribute('ref').split('/')
+        if (part_ref[-1] if part_ref else node.getAttribute('ref')) == ref:
+            container.append(node)
+
+
+def getElementChoices(node, key_name, document):
+    container = {}
+    # finding keys
+    for value_node in node.getElementsByTagName('value'):
+        for child in value_node.childNodes:
+            if child.nodeType == child.TEXT_NODE:
+                container[child.data] = child.data
+    # finding values of that key
+    for k, v in container.items():
+        for ele in document.getElementsByTagName('text'):
+            if ele.hasAttribute('id') and ele.getAttribute('id').split('/')[-2] == key_name and ele.getAttribute('id').split('/')[-1] == f'{k}:label':
+                child = ele.getElementsByTagName('value')[0].firstChild
+                container[k] = child.data
+    return container
+
+
+def map_keys_to_type_and_choices(form_id, key_list):
+    host = os.environ.get('ODK_HOST')
+    username = os.environ.get('ODK_USERNAME')
+    password = os.environ.get('ODK_PASSWORD')
+    form = getODKSingleForm(host, form_id, username, password)
+    DOMTree = xml.dom.minidom.parseString(form)
+    # column type and choices mapping
+    for i, item in enumerate(key_list):
+        temp = []
+        getElementByRef(DOMTree, item, temp)
+        if temp:
+            ele = temp[0]
+            if ele.nodeName == 'input':
+                key_list[i] = {
+                    'name': item,
+                    'type': QuestionType.INPUT.value,
+                }
+            elif ele.nodeName == 'select1':
+                choices = getElementChoices(ele, item, DOMTree)
+                key_list[i] = {
+                    'name': item,
+                    'type': QuestionType.SELECT_SINGLE.value,
+                    'choices': choices
+                }
+            elif ele.nodeName == 'select':
+                choices = getElementChoices(ele, item, DOMTree)
+                key_list[i] = {
+                    'name': item,
+                    'type': QuestionType.SELECT_MULTIPLE.value,
+                    'choices': choices
+                }
+            else:
+                key_list[i] = {
+                    'name': item,
+                    'type': QuestionType.UNKNOWN.value,
+                }
+        else:
+            key_list[i] = {
+                'name': item,
+                'type': QuestionType.UNKNOWN.value,
+            }
+
+
 @csrf_exempt
 @api_view(['GET'])
 def parseODKForm(request, form_id):
@@ -323,7 +408,7 @@ def parseODKForm(request, form_id):
             if nodeset_attr:
                 container.append(nodeset_attr[-1])
 
-        # print(container)
+        map_keys_to_type_and_choices(form_id, container)
         final_data = container
     except Exception as e:
         traceback.print_exc()
