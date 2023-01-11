@@ -129,6 +129,29 @@ def getAllConfigurations(request):
         return return_response(final_data, error_code, error_text)
 
 
+def map_cols_to_cols_details(data):
+    # fetch keys details
+    key_list = set()
+    key_list.update(
+        map(lambda x: x['col1'], data['config']['mapping'].values()))
+    key_list.update(
+        map(lambda x: x['col2'], data['config']['mapping'].values()))
+    key_list.remove(None)
+    key_list = list(key_list)
+    map_keys_to_type_and_choices(
+        data['config']['form_id'], key_list)
+    # replace col with col_details
+    for k, v in data['config']['mapping'].items():
+        if v['col1']:
+            col1_details = list(
+                filter(lambda x: x['name'] == v['col1'], key_list))
+            v['col1'] = col1_details[0]
+        if v['col2']:
+            col2_details = list(
+                filter(lambda x: x['name'] == v['col2'], key_list))
+            v['col2'] = col2_details[0]
+
+
 @csrf_exempt
 @api_view(['GET', 'PUT', 'DELETE'])
 def configurationOp(request, config_id):
@@ -158,12 +181,7 @@ def configurationOp(request, config_id):
             if 'config' in data:
                 configuration.config = data['config']
                 if 'form_id' in data['config'] and 'mapping' in data['config']:
-                    key_list = list(data['config']['mapping'].keys())
-                    map_keys_to_type_and_choices(
-                        data['config']['form_id'], key_list)
-                    for k, v in data['config']['mapping'].items():
-                        data['config']['mapping'][k] = {
-                            **v, **list(filter(lambda x: x['name'] == k, key_list))[0]}
+                    map_cols_to_cols_details(data)
             configuration.save()
             final_data = configuration.serialize()
         elif request.method == 'DELETE':
