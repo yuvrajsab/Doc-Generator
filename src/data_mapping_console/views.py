@@ -104,7 +104,7 @@ def getAllConfigurations(request):
             if not version:
                 raise Exception('Version is required')
 
-            config_json = data.get('config')
+            data_json = data.get('data')
             result = requests.post(f"{os.environ.get('DOC_GEN_URL')}/register/", headers={
                 'GA-OAUTH-TOKEN': existing_user['access_token'],
                 'GA-OAUTH-REFRESHTOKEN': existing_user['refresh_token'],
@@ -118,7 +118,7 @@ def getAllConfigurations(request):
             if 'error' in result:
                 raise Exception('Failed to register template')
             configuration = DMCConfigurations.objects.create(
-                template_id=result['data']['id'], user_email=token_data['user']['email'], config=config_json, title=title, description=description, version=version)
+                template_id=result['data']['id'], user_email=token_data['user']['email'], data=data_json, title=title, description=description, version=version)
             configuration.save()
             final_data = configuration.serialize()
     except Exception as e:
@@ -133,15 +133,15 @@ def map_cols_to_cols_details(data):
     # fetch keys details
     key_list = set()
     key_list.update(
-        map(lambda x: x['col1'], data['config']['mapping'].values()))
+        map(lambda x: x['col1'], data['data']['mapping'].values()))
     key_list.update(
-        map(lambda x: x['col2'], data['config']['mapping'].values()))
+        map(lambda x: x['col2'], data['data']['mapping'].values()))
     key_list.remove(None)
     key_list = list(key_list)
     map_keys_to_type_and_choices(
-        data['config']['form_id'], key_list)
+        data['data']['form_id'], key_list)
     # replace col with col_details
-    for k, v in data['config']['mapping'].items():
+    for k, v in data['data']['mapping'].items():
         if v['col1']:
             col1_details = list(
                 filter(lambda x: x['name'] == v['col1'], key_list))
@@ -178,9 +178,9 @@ def configurationOp(request, config_id):
                 if not data['status'] in choices:
                     raise Exception('Invalid status: choices ' + str(choices))
                 configuration.status = data['status']
-            if 'config' in data:
-                configuration.config = data['config']
-                if 'form_id' in data['config'] and 'mapping' in data['config']:
+            if 'data' in data:
+                configuration.data = data['data']
+                if 'form_id' in data['data'] and 'mapping' in data['data']:
                     map_cols_to_cols_details(data)
             configuration.save()
             final_data = configuration.serialize()

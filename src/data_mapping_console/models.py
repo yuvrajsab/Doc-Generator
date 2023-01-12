@@ -15,7 +15,7 @@ class DMCConfigurations(BaseModel):
     version = models.CharField(max_length=255)
     user_email = models.EmailField()
     template_id = models.BigIntegerField()
-    config = models.JSONField(null=True)
+    data = models.JSONField(null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
 
     class Meta:
@@ -32,7 +32,7 @@ class DMCConfigurations(BaseModel):
             "version": self.version,
             "user_email": self.user_email,
             "template_id": self.template_id,
-            "config": self.config,
+            "data": self.data,
             "status": self.status,
             "created": self.created,
             "updated": self.updated,
